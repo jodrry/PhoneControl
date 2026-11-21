@@ -1,0 +1,26 @@
+# Android / Gradle
+*.iml
+.gradle/
+local.properties
+.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+**/build/
+
+# Signing material and secrets
+*.jks
+*.keystore
+keystore.properties
+secrets.properties
+.env
+.secrets/
+
+# Local bootstraped toolchain (large, machine-specific)
+.tools/
+tools/__pycache__/
+
+# APK / AAB build outputs copied out for convenience
+/dist/

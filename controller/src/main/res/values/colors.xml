@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand_primary">#5B8CFF</color>
+    <color name="brand_on_primary">#071326</color>
+    <color name="brand_secondary">#35D0BA</color>
+    <color name="surface_dark">#0B1220</color>
+    <color name="surface_elevated">#141D2F</color>
+    <color name="card_stroke">#273552</color>
+    <color name="text_primary">#F3F6FC</color>
+    <color name="text_secondary">#A7B4C9</color>
+    <color name="success">#54D98C</color>
+    <color name="warning">#FFC857</color>
+    <color name="danger">#FF6B6B</color>
+</resources>

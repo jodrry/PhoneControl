@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">手机被控端</string>
+    <string name="title">手机被控端</string>
+    <string name="subtitle">在本机开启屏幕共享，等待同一局域网内的控制端连接。</string>
+
+    <string name="status_title">运行状态</string>
+    <string name="status_idle">未共享</string>
+    <string name="status_preparing">正在启动…</string>
+    <string name="status_sharing">屏幕共享中</string>
+    <string name="status_error">运行异常</string>
+
+    <string name="ip_label">本机 IP</string>
+    <string name="port_label">监听端口</string>
+    <string name="connections_label">控制端连接</string>
+    <string name="accessibility_label">无障碍服务</string>
+    <string name="notification_label">通知权限</string>
+    <string name="mdns_label">局域网发现</string>
+    <string name="screen_label">本机屏幕</string>
+    <string name="capture_label">采集分辨率</string>
+
+    <string name="value_unknown">未知</string>
+    <string name="value_enabled">已开启</string>
+    <string name="value_disabled">未开启</string>
+    <string name="value_granted">已授予</string>
+    <string name="value_not_granted">未授予</string>
+    <string name="value_not_running">未启动</string>
+    <string name="value_advertising">正在广播</string>
+    <string name="value_mdns_failed">广播失败，可手动输入 IP</string>
+    <string name="value_connections">%1$d 台</string>
+    <string name="value_screen">%1$d × %2$d</string>
+    <string name="value_capture">%1$d × %2$d</string>
+
+    <string name="start_sharing">开始共享</string>
+    <string name="stop_sharing">停止共享</string>
+
+    <string name="permission_title">首次使用检查</string>
+    <string name="permission_intro">按顺序完成以下设置。屏幕捕获授权会在每次开始共享时由系统弹出。</string>
+    <string name="permission_notification_step">1. 通知权限：Android 13 及以上需要允许通知，前台服务才能稳定常驻。</string>
+    <string name="permission_accessibility_step">2. 无障碍服务：用于注入点击、滑动、返回和 Home。系统设置中找到“手机被控端 / 远程控制手势服务”并开启。</string>
+    <string name="permission_capture_step">3. 屏幕捕获：点“开始共享”，在系统弹窗中选择“立即开始”或“允许”。Android 14 每次共享都需要重新授权。</string>
+    <string name="open_accessibility">打开无障碍设置</string>
+    <string name="grant_notification">授予通知权限</string>
+    <string name="notification_already_granted">通知权限已授予</string>
+    <string name="notification_rationale">未授予通知权限时，屏幕共享仍可启动，但通知可能不会显示在通知栏。建议允许。</string>
+
+    <string name="help_title">使用提示</string>
+    <string name="help_text">• 两台手机必须连接同一 Wi-Fi，且路由器未开启 AP 隔离。\n• 默认端口 8765。若控制端自动发现失败，请在本机查看 IP，在控制端手动输入 IP 和端口。\n• 控制端画面上的触摸坐标为归一化 0~1，本机会按实际屏幕分辨率换算。\n• 停止共享后 MediaProjection 授权失效，下次需要重新授权。\n• 若旋转屏幕后画面异常，请停止并重新开始共享。</string>
+
+    <string name="onboarding_title">准备被控端</string>
+    <string name="onboarding_message">需要完成三项设置：\n\n1. 允许通知权限\n2. 开启无障碍服务（用于注入手势）\n3. 开始共享并允许屏幕捕获\n\n无障碍服务只在本机通过 WebSocket 收到指令时执行点击/滑动，不会上传屏幕内容。</string>
+    <string name="onboarding_positive">去开启无障碍</string>
+    <string name="onboarding_negative">稍后</string>
+
+    <string name="toast_projection_denied">未授予屏幕捕获权限，无法开始共享</string>
+    <string name="toast_already_sharing">屏幕共享已启动</string>
+    <string name="toast_accessibility_missing">无障碍服务未开启，控制端只能看画面，无法注入手势</string>
+    <string name="toast_starting">正在请求屏幕捕获授权…</string>
+    <string name="toast_service_start_failed">启动前台服务失败</string>
+    <string name="toast_stopped">屏幕共享已停止</string>
+    <string name="toast_need_notification">建议先授予通知权限，以保证前台服务稳定</string>
+
+    <string name="channel_name">屏幕共享</string>
+    <string name="channel_description">保持屏幕捕获和局域网 WebSocket 服务运行</string>
+    <string name="notification_title">屏幕共享运行中</string>
+    <string name="notification_text">%1$s:%2$d · %3$d 个控制端</string>
+    <string name="notification_preparing">正在准备屏幕捕获…</string>
+    <string name="notification_stop">停止共享</string>
+
+    <string name="error_media_projection">无法获取屏幕捕获权限：%1$s</string>
+    <string name="error_projection_stopped">屏幕捕获已被系统结束，请重新开始共享</string>
+    <string name="error_port_busy">端口 %1$d 启动失败，可能已被占用</string>
+    <string name="error_capture">屏幕编码启动失败：%1$s</string>
+    <string name="error_unknown">未知错误</string>
+    <string name="error_prefix">错误：%1$s</string>
+
+    <string name="accessibility_service_label">远程控制手势服务</string>
+    <string name="accessibility_service_description">允许“手机被控端”在本机执行由局域网控制端发起的点击、长按、滑动、返回和 Home 手势。屏幕内容只发送给已连接的局域网控制端。</string>
+</resources>

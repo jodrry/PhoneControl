@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">手机控制端</string>
+    <string name="title">手机控制端</string>
+    <string name="subtitle">输入被控端 IP，或从局域网自动发现设备。</string>
+
+    <string name="status_idle">未连接</string>
+    <string name="status_connecting">连接中…</string>
+    <string name="status_connected">已连接</string>
+    <string name="status_disconnected">连接已断开</string>
+    <string name="status_error">连接失败</string>
+    <string name="latency_unknown">延迟 --</string>
+    <string name="latency_value">延迟 %1$d ms</string>
+    <string name="resolution_value">%1$d × %2$d</string>
+
+    <string name="ip_hint">被控端 IP，例如 192.168.1.23</string>
+    <string name="port_hint">端口</string>
+    <string name="device_hint">局域网设备</string>
+    <string name="select_device">选择发现的设备</string>
+    <string name="scan">扫描局域网</string>
+    <string name="scanning">扫描中…</string>
+    <string name="connect">连接</string>
+    <string name="disconnect">断开</string>
+    <string name="back">返回</string>
+    <string name="home">Home</string>
+    <string name="no_device">未发现设备，可手动输入 IP</string>
+    <string name="device_found">发现：%1$s</string>
+    <string name="scan_finished">扫描结束，发现 %1$d 台设备</string>
+
+    <string name="hint_disconnected">画面区域：连接后在这里触摸，可远程点击、长按或滑动。</string>
+    <string name="hint_connected">触摸画面即可控制；长按画面会触发远程长按。</string>
+    <string name="video_placeholder">等待被控端画面…</string>
+
+    <string name="toast_invalid_address">请输入有效的被控端 IP 和端口（1~65535）</string>
+    <string name="toast_connecting">正在连接 %1$s:%2$d…</string>
+    <string name="toast_connected">已连接被控端</string>
+    <string name="toast_disconnected">已断开连接</string>
+    <string name="toast_connection_failed">连接失败，请检查 IP、端口和同一局域网</string>
+    <string name="toast_decoder_error">视频解码出错：%1$s</string>
+    <string name="toast_agent_error">被控端返回错误：%1$s</string>
+    <string name="toast_not_connected">尚未连接被控端</string>
+
+    <string name="help_text">两台手机需连接同一 Wi-Fi；若自动发现失败，请在被控端查看 IP 后手动输入。局域网 WebSocket 未加密，请只在可信网络使用。</string>
+
+    <string name="nsd_service_type">_phonecontrol._tcp.</string>
+    <string name="agent_default_port">8765</string>
+</resources>
