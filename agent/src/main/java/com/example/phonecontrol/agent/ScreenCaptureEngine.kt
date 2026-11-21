@@ -14,15 +14,21 @@ import java.nio.ByteBuffer
 /**
  * MediaProjection -> encoder input Surface -> MediaCodec H.264 -> WireProtocol.
  *
- * The virtual display is captured at a scaled resolution (long edge <= 1280) to
- * keep encoding and Wi-Fi bandwidth reasonable; touch coordinates are always
- * normalized, so the controller does not need to know this capture size.
+ * The virtual display is captured at a scaled resolution (long edge limited by the
+ * controller's quality profile) to keep encoding and Wi-Fi bandwidth reasonable;
+ * touch coordinates are always normalized, so the controller does not need to know
+ * this capture size.
+ *
+ * 编码参数按低延迟优先配置：CBR、禁用 B 帧、latency=0。设备编码器不接受时逐级
+ * 回退，保证至少能用最基础的参数编出来。
  */
 class ScreenCaptureEngine(
     private val projection: MediaProjection,
-    private val captureWidth: Int,
-    private val captureHeight: Int,
+    @Volatile private var captureWidth: Int,
+    @Volatile private var captureHeight: Int,
     private val densityDpi: Int,
+    @Volatile private var frameRate: Int,
+    @Volatile private var bitrateKbps: Int,
     private val callbacks: Callbacks
 ) {
     interface Callbacks {
@@ -48,21 +54,11 @@ class ScreenCaptureEngine(
         stopped = false
         running = true
         try {
-            val format = MediaFormat.createVideoFormat(MIME_TYPE, captureWidth, captureHeight).apply {
-                setInteger(
-                    MediaFormat.KEY_COLOR_FORMAT,
-                    MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
-                )
-                setInteger(MediaFormat.KEY_BIT_RATE, bitrateFor(captureWidth, captureHeight))
-                setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE)
-                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, I_FRAME_INTERVAL_SECONDS)
-            }
-            val encoder = MediaCodec.createEncoderByType(MIME_TYPE)
-            codec = encoder
-            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            val encoder = newEncoder()
             val surface = encoder.createInputSurface()
             inputSurface = surface
             encoder.start()
+            codec = encoder
             virtualDisplay = projection.createVirtualDisplay(
                 "PhoneControlCapture",
                 captureWidth,
@@ -78,11 +74,89 @@ class ScreenCaptureEngine(
                 priority = Thread.NORM_PRIORITY + 1
                 start()
             }
-            Log.i(TAG, "capture started ${captureWidth}x$captureHeight @ ${densityDpi}dpi")
+            Log.i(TAG, "capture started ${captureWidth}x$captureHeight @ ${frameRate}fps ${bitrateLabel()}")
         } catch (t: Throwable) {
             running = false
             Log.e(TAG, "capture start failed", t)
             callbacks.onError(t)
+        }
+    }
+
+    /**
+     * 运行期切换采集参数：分辨率、帧率、码率。
+     *
+     * 不重新申请 MediaProjection（Android 14 只允许一次 createVirtualDisplay），
+     * 而是复用已有的 VirtualDisplay，换掉编码器 Surface 后 resize。
+     *
+     * @return true 表示新参数已生效；false 表示回退到原参数。
+     */
+    fun reconfigure(newWidth: Int, newHeight: Int, newFps: Int, newBitrateKbps: Int): Boolean {
+        synchronized(stopLock) {
+            if (!running) return false
+            val width = alignEven(newWidth)
+            val height = alignEven(newHeight)
+            val fps = newFps.coerceIn(10, 60)
+            val kbps = newBitrateKbps.coerceIn(0, 40_000)
+            if (width == captureWidth && height == captureHeight &&
+                fps == frameRate && kbps == bitrateKbps
+            ) {
+                return true
+            }
+            val display = virtualDisplay ?: return false
+            val oldWidth = captureWidth
+            val oldHeight = captureHeight
+            val oldFps = frameRate
+            val oldKbps = bitrateKbps
+
+            stopEncoderOnly()
+
+            captureWidth = width
+            captureHeight = height
+            frameRate = fps
+            bitrateKbps = kbps
+            if (attachEncoder(display)) {
+                Log.i(TAG, "reconfigured ${width}x$height @ ${fps}fps ${bitrateLabel()}")
+                return true
+            }
+
+            // 回退到原来的参数
+            Log.w(TAG, "reconfigure rejected, restoring ${oldWidth}x$oldHeight")
+            stopEncoderOnly()
+            captureWidth = oldWidth
+            captureHeight = oldHeight
+            frameRate = oldFps
+            bitrateKbps = oldKbps
+            if (!attachEncoder(display)) {
+                running = false
+                callbacks.onError(IllegalStateException("encoder could not be restored"))
+            }
+            return false
+        }
+    }
+
+    /** 建编码器 + 输入 Surface，挂到已有的 VirtualDisplay 上，然后开始出帧。 */
+    private fun attachEncoder(display: VirtualDisplay): Boolean {
+        return try {
+            val encoder = newEncoder()
+            val surface = encoder.createInputSurface()
+            encoder.start()
+            runCatching { display.setSurface(null) }
+                .onFailure { Log.w(TAG, "detach surface failed", it) }
+            runCatching { display.resize(captureWidth, captureHeight, densityDpi) }
+                .onFailure { Log.w(TAG, "virtual display resize failed", it) }
+            display.setSurface(surface)
+            codec = encoder
+            inputSurface = surface
+            lastConfigPacket = null
+            worker = Thread({ encodeLoop(encoder) }, "PhoneControl-H264").apply {
+                priority = Thread.NORM_PRIORITY + 1
+                start()
+            }
+            requestKeyFrame()
+            true
+        } catch (t: Throwable) {
+            Log.e(TAG, "attach encoder failed", t)
+            false
         }
     }
 
@@ -99,22 +173,13 @@ class ScreenCaptureEngine(
         }
     }
 
-    fun stop() {
+    fun stop(releaseProjection: Boolean = true) {
         synchronized(stopLock) {
             if (stopped) return
             stopped = true
             running = false
 
-            val thread = worker
-            worker = null
-            if (thread != null && thread !== Thread.currentThread()) {
-                thread.interrupt()
-                try {
-                    thread.join(1_200)
-                } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                }
-            }
+            stopEncoderOnly()
 
             try {
                 virtualDisplay?.release()
@@ -123,31 +188,122 @@ class ScreenCaptureEngine(
             }
             virtualDisplay = null
 
-            try {
-                inputSurface?.release()
-            } catch (t: Throwable) {
-                Log.w(TAG, "input surface release failed", t)
-            }
-            inputSurface = null
-
-            try {
-                codec?.stop()
-            } catch (t: Throwable) {
-                Log.w(TAG, "encoder stop failed", t)
-            }
-            try {
-                codec?.release()
-            } catch (t: Throwable) {
-                Log.w(TAG, "encoder release failed", t)
-            }
-            codec = null
-
-            try {
-                projection.stop()
-            } catch (t: Throwable) {
-                Log.w(TAG, "projection stop failed", t)
+            if (releaseProjection) {
+                try {
+                    projection.stop()
+                } catch (t: Throwable) {
+                    Log.w(TAG, "projection stop failed", t)
+                }
             }
         }
+    }
+
+    private fun stopEncoderOnly() {
+        val thread = worker
+        worker = null
+        if (thread != null && thread !== Thread.currentThread()) {
+            thread.interrupt()
+            try {
+                thread.join(1_200)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
+        }
+
+        try {
+            inputSurface?.release()
+        } catch (t: Throwable) {
+            Log.w(TAG, "input surface release failed", t)
+        }
+        inputSurface = null
+
+        try {
+            codec?.stop()
+        } catch (t: Throwable) {
+            Log.w(TAG, "encoder stop failed", t)
+        }
+        try {
+            codec?.release()
+        } catch (t: Throwable) {
+            Log.w(TAG, "encoder release failed", t)
+        }
+        codec = null
+    }
+
+    /**
+     * 按低延迟优先配置编码器。高优先级的键（CBR / 禁用 B 帧 / latency）逐级尝试，
+     * 编码器不认就退回更保守的参数。
+     */
+    private fun newEncoder(): MediaCodec {
+        val extras = arrayOf(
+            mapOf(
+                "bitrate-mode" to MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR,
+                "max-b-frames" to 0,
+                "latency" to 0,
+                "repeat-previous-frame-after" to (1_000_000 / frameRate.coerceAtLeast(1))
+            ),
+            mapOf("bitrate-mode" to MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR),
+            emptyMap<String, Int>()
+        )
+        var lastError: Throwable? = null
+        for (extra in extras) {
+            val encoder = try {
+                MediaCodec.createEncoderByType(MIME_TYPE)
+            } catch (t: Throwable) {
+                throw if (lastError == null) t else lastError
+            }
+            try {
+                encoder.configure(
+                    buildFormat(extra),
+                    null,
+                    null,
+                    MediaCodec.CONFIGURE_FLAG_ENCODE
+                )
+                return encoder
+            } catch (t: Throwable) {
+                lastError = t
+                Log.w(TAG, "encoder rejected ${extra.keys}, retrying simpler config", t)
+                try {
+                    encoder.release()
+                } catch (_: Throwable) {
+                    // ignored
+                }
+            }
+        }
+        throw lastError ?: IllegalStateException("no usable H.264 encoder")
+    }
+
+    private fun buildFormat(extra: Map<String, Int>): MediaFormat {
+        val format = MediaFormat.createVideoFormat(MIME_TYPE, captureWidth, captureHeight)
+        format.setInteger(
+            MediaFormat.KEY_COLOR_FORMAT,
+            MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
+        )
+        format.setInteger(MediaFormat.KEY_BIT_RATE, resolvedBitrate())
+        format.setInteger(MediaFormat.KEY_FRAME_RATE, frameRate)
+        format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, iFrameIntervalSeconds())
+        extra.forEach { (key, value) -> format.setInteger(key, value) }
+        return format
+    }
+
+    private fun resolvedBitrate(): Int {
+        if (bitrateKbps > 0) {
+            return (bitrateKbps.toLong() * 1000L).coerceIn(300_000L, 40_000_000L).toInt()
+        }
+        return (captureWidth.toLong() * captureHeight.toLong() * 4L)
+            .coerceIn(1_500_000L, 8_000_000L)
+            .toInt()
+    }
+
+    /** 关键帧间隔按帧率换算，1 秒一个，丢包后能快速恢复画面。 */
+    private fun iFrameIntervalSeconds(): Int = I_FRAME_INTERVAL_SECONDS
+
+    private fun bitrateLabel(): String =
+        if (bitrateKbps > 0) "${bitrateKbps}kbps" else "${resolvedBitrate() / 1000}kbps"
+
+    private fun alignEven(value: Int): Int {
+        val even = (value / 2) * 2
+        return if (even < 2) 2 else even
     }
 
     private fun encodeLoop(encoder: MediaCodec) {
@@ -359,17 +515,10 @@ class ScreenCaptureEngine(
         return ByteArray(duplicate.remaining()).also { duplicate.get(it) }
     }
 
-    private fun bitrateFor(width: Int, height: Int): Int {
-        return (width.toLong() * height.toLong() * 4L)
-            .coerceIn(1_500_000L, 8_000_000L)
-            .toInt()
-    }
-
     private companion object {
         const val TAG = "ScreenCaptureEngine"
         const val MIME_TYPE = MediaFormat.MIMETYPE_VIDEO_AVC
-        const val FRAME_RATE = 30
-        const val I_FRAME_INTERVAL_SECONDS = 2
+        const val I_FRAME_INTERVAL_SECONDS = 1
         const val DEQUEUE_TIMEOUT_US = 10_000L
         const val NAL_SPS = 7
         const val NAL_PPS = 8

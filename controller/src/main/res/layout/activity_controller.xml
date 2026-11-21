@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/rootLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/surface_dark">
+    android:background="@color/surface_dark"
+    android:clipChildren="true">
 
     <LinearLayout
         android:id="@+id/topBar"
@@ -72,6 +74,8 @@
         android:layout_marginEnd="10dp"
         android:layout_marginBottom="10dp"
         android:background="#000000"
+        android:clipChildren="true"
+        android:clipToPadding="true"
         app:layout_constraintBottom_toTopOf="@id/bottomPanel"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -83,6 +87,32 @@
             android:layout_height="match_parent" />
     </com.example.phonecontrol.controller.AspectRatioFrameLayout>
 
+    <TextView
+        android:id="@+id/videoPlaceholder"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/video_placeholder"
+        android:textColor="@color/text_secondary"
+        android:textSize="13sp"
+        app:layout_constraintBottom_toBottomOf="@id/videoContainer"
+        app:layout_constraintEnd_toEndOf="@id/videoContainer"
+        app:layout_constraintStart_toStartOf="@id/videoContainer"
+        app:layout_constraintTop_toTopOf="@id/videoContainer" />
+
+    <TextView
+        android:id="@+id/fullscreenButton"
+        android:layout_width="wrap_content"
+        android:layout_height="34dp"
+        android:background="@drawable/bg_overlay_chip"
+        android:gravity="center"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:text="@string/fullscreen_enter"
+        android:textColor="@color/text_primary"
+        android:textSize="12sp"
+        app:layout_constraintEnd_toEndOf="@id/videoContainer"
+        app:layout_constraintTop_toTopOf="@id/videoContainer" />
+
     <LinearLayout
         android:id="@+id/bottomPanel"
         android:layout_width="0dp"
@@ -90,9 +120,9 @@
         android:background="@color/surface_elevated"
         android:orientation="vertical"
         android:paddingStart="16dp"
-        android:paddingTop="12dp"
+        android:paddingTop="10dp"
         android:paddingEnd="16dp"
-        android:paddingBottom="16dp"
+        android:paddingBottom="12dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent">
@@ -100,10 +130,46 @@
         <Spinner
             android:id="@+id/deviceSpinner"
             android:layout_width="match_parent"
-            android:layout_height="42dp"
+            android:layout_height="40dp"
             android:backgroundTint="@color/card_stroke"
             android:contentDescription="@string/device_hint"
             android:spinnerMode="dropdown" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
+
+            <Spinner
+                android:id="@+id/qualitySpinner"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1.05"
+                android:backgroundTint="@color/card_stroke"
+                android:contentDescription="@string/quality_hint"
+                android:spinnerMode="dropdown" />
+
+            <Spinner
+                android:id="@+id/fpsSpinner"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="6dp"
+                android:layout_weight="0.85"
+                android:backgroundTint="@color/card_stroke"
+                android:contentDescription="@string/fps_hint"
+                android:spinnerMode="dropdown" />
+
+            <Spinner
+                android:id="@+id/fitSpinner"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="6dp"
+                android:layout_weight="0.85"
+                android:backgroundTint="@color/card_stroke"
+                android:contentDescription="@string/fit_hint"
+                android:spinnerMode="dropdown" />
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -212,13 +278,25 @@
                 android:text="@string/home"
                 android:textAllCaps="false"
                 app:cornerRadius="12dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/recentsButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:text="@string/recents"
+                android:textAllCaps="false"
+                app:cornerRadius="12dp" />
         </LinearLayout>
 
         <TextView
             android:id="@+id/helpText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="6dp"
             android:lineSpacingExtra="2dp"
             android:text="@string/help_text"
             android:textColor="@color/text_secondary"

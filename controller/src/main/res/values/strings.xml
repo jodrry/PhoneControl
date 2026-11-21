@@ -7,6 +7,7 @@
     <string name="status_idle">未连接</string>
     <string name="status_connecting">连接中…</string>
     <string name="status_connected">已连接</string>
+    <string name="status_reconnecting">连接断开，正在重连…</string>
     <string name="status_disconnected">连接已断开</string>
     <string name="status_error">连接失败</string>
     <string name="latency_unknown">延迟 --</string>
@@ -16,6 +17,9 @@
     <string name="ip_hint">被控端 IP，例如 192.168.1.23</string>
     <string name="port_hint">端口</string>
     <string name="device_hint">局域网设备</string>
+    <string name="quality_hint">画面质量</string>
+    <string name="fps_hint">帧率</string>
+    <string name="fit_hint">显示比例</string>
     <string name="select_device">选择发现的设备</string>
     <string name="scan">扫描局域网</string>
     <string name="scanning">扫描中…</string>
@@ -23,12 +27,15 @@
     <string name="disconnect">断开</string>
     <string name="back">返回</string>
     <string name="home">Home</string>
+    <string name="recents">最近任务</string>
+    <string name="fullscreen_enter">全屏</string>
+    <string name="fullscreen_exit">退出全屏</string>
     <string name="no_device">未发现设备，可手动输入 IP</string>
     <string name="device_found">发现：%1$s</string>
     <string name="scan_finished">扫描结束，发现 %1$d 台设备</string>
 
-    <string name="hint_disconnected">画面区域：连接后在这里触摸，可远程点击、长按或滑动。</string>
-    <string name="hint_connected">触摸画面即可控制；长按画面会触发远程长按。</string>
+    <string name="hint_disconnected">连接后可在此区域触摸控制；上方可选画质、帧率和显示比例。</string>
+    <string name="hint_connected">触摸画面即可控制；长按触发远程长按，右上角可全屏。</string>
     <string name="video_placeholder">等待被控端画面…</string>
 
     <string name="toast_invalid_address">请输入有效的被控端 IP 和端口（1~65535）</string>
@@ -39,8 +46,26 @@
     <string name="toast_decoder_error">视频解码出错：%1$s</string>
     <string name="toast_agent_error">被控端返回错误：%1$s</string>
     <string name="toast_not_connected">尚未连接被控端</string>
+    <string name="toast_reconnecting">连接中断，正在第 %1$d 次重连…</string>
+    <string name="toast_profile_applied">已切换为 %1$s</string>
 
-    <string name="help_text">两台手机需连接同一 Wi-Fi；若自动发现失败，请在被控端查看 IP 后手动输入。局域网 WebSocket 未加密，请只在可信网络使用。</string>
+    <string name="quality_auto">质量 自动</string>
+    <string name="quality_low">流畅 480p</string>
+    <string name="quality_medium">标准 720p</string>
+    <string name="quality_high">高清 1080p</string>
+    <string name="quality_ultra">超高清 1440p</string>
+
+    <string name="fps_eco">帧率 15</string>
+    <string name="fps_standard">帧率 30</string>
+    <string name="fps_smooth">帧率 60</string>
+
+    <string name="fit_fit">比例 适应</string>
+    <string name="fit_fill">比例 铺满</string>
+    <string name="fit_stretch">比例 拉伸</string>
+    <string name="fit_4_3">比例 4:3</string>
+    <string name="fit_16_9">比例 16:9</string>
+
+    <string name="help_text">两台手机需连接同一 Wi-Fi；若自动发现失败，请在被控端查看 IP 后手动输入。画面质量与帧率会实时下发给被控端；弱网可选 480p + 15 帧降低延迟。局域网 WebSocket 未加密，请只在可信网络使用。</string>
 
     <string name="nsd_service_type">_phonecontrol._tcp.</string>
     <string name="agent_default_port">8765</string>

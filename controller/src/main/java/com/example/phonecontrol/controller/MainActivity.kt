@@ -11,7 +11,11 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.example.phonecontrol.controller.databinding.ActivityControllerBinding
 import org.json.JSONObject
 import java.util.LinkedHashMap
@@ -21,6 +25,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityControllerBinding
     private lateinit var nsdDiscovery: NsdDiscovery
     private lateinit var deviceAdapter: ArrayAdapter<String>
+    private lateinit var qualityAdapter: ArrayAdapter<String>
+    private lateinit var fpsAdapter: ArrayAdapter<String>
+    private lateinit var fitAdapter: ArrayAdapter<String>
 
     @Volatile
     private var client: ControllerWebSocketClient? = null
@@ -35,33 +42,80 @@ class MainActivity : AppCompatActivity() {
 
     private var pingPending = false
     private var pingSentAt = 0L
+    private var missedPongs = 0
 
     @Volatile
     private var lastSyncRequestAt = 0L
 
     private var lastTouchMoveAt = 0L
 
+    // 当前下发给被控端的采集参数
+    private var currentQuality = CaptureQuality.AUTO
+    private var currentFps = CaptureFps.STANDARD
+    private var currentFit = VideoFit.FIT
+
+    // 自动重连
+    private var reconnectAttempts = 0
+    private var userDisconnected = false
+    private var lastHost = ""
+    private var lastPort = 0
+
+    private var fullscreen = false
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private val foundAgents = LinkedHashMap<String, DiscoveredAgent>()
     private val deviceChoices = ArrayList<DiscoveredAgent>()
+
+    private val qualityOptions = arrayOf(
+        CaptureQuality.AUTO,
+        CaptureQuality.LOW,
+        CaptureQuality.MEDIUM,
+        CaptureQuality.HIGH,
+        CaptureQuality.ULTRA
+    )
+    private val fpsOptions = arrayOf(CaptureFps.ECO, CaptureFps.STANDARD, CaptureFps.SMOOTH)
+    private val fitOptions = arrayOf(
+        VideoFit.FIT,
+        VideoFit.FILL,
+        VideoFit.STRETCH,
+        VideoFit.RATIO_4_3,
+        VideoFit.RATIO_16_9
+    )
 
     private val pingRunnable = object : Runnable {
         override fun run() {
             if (!connected) return
             val target = client
             if (target != null && target.isOpen) {
+                val now = SystemClock.elapsedRealtime()
                 if (!pingPending) {
-                    val sentAt = SystemClock.elapsedRealtime()
+                    val sentAt = now
                     if (target.sendPing(sentAt)) {
                         pingPending = true
                         pingSentAt = sentAt
                     }
-                } else if (SystemClock.elapsedRealtime() - pingSentAt > 3_000L) {
+                } else if (now - pingSentAt > PONG_TIMEOUT_MS) {
                     pingPending = false
+                    missedPongs++
                     binding.latencyText.text = getString(R.string.latency_unknown)
+                    if (missedPongs >= MAX_MISSED_PONGS) {
+                        missedPongs = 0
+                        // 心跳连续丢失：链路已经假死，主动断开并重连
+                        handleConnectionLost("heartbeat timeout", null, allowReconnect = true)
+                        return
+                    }
                 }
             }
-            mainHandler.postDelayed(this, 1_000L)
+            mainHandler.postDelayed(this, PING_INTERVAL_MS)
+        }
+    }
+
+    private val reconnectRunnable = object : Runnable {
+        override fun run() {
+            if (userDisconnected) return
+            if (client != null || connected || connecting) return
+            if (lastHost.isEmpty() || lastPort <= 0) return
+            startConnection(lastHost, lastPort, isReconnect = true)
         }
     }
 
@@ -72,7 +126,10 @@ class MainActivity : AppCompatActivity() {
 
         binding.videoContainer.aspectRatio = 9f / 16f
         binding.latencyText.text = getString(R.string.latency_unknown)
+        binding.videoPlaceholder.visibility = View.VISIBLE
+
         setupSpinner()
+        setupQualityControls()
         setupSurface()
         setupInput()
         setupButtons()
@@ -80,6 +137,8 @@ class MainActivity : AppCompatActivity() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         binding.ipInput.setText(prefs.getString(KEY_LAST_HOST, ""))
         binding.portInput.setText(prefs.getInt(KEY_LAST_PORT, DEFAULT_PORT).toString())
+
+        restoreProfilePrefs(prefs)
 
         nsdDiscovery = NsdDiscovery(this, object : NsdDiscovery.Listener {
             override fun onFound(agent: DiscoveredAgent) {
@@ -119,6 +178,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(reconnectRunnable)
         nsdDiscovery.stop()
         stopPing()
         val activeClient = client
@@ -136,14 +196,15 @@ class MainActivity : AppCompatActivity() {
             val target = client ?: return@setOnTouchListener false
             val width = view.width.toFloat()
             val height = view.height.toFloat()
-            if (width <= 0f || height <= 0f) return@setOnTouchListener true
+            if (width <= 0f || height <= 0f) return@setOnTouchListener false
 
             val x = (event.x / width).coerceIn(0f, 1f)
             val y = (event.y / height).coerceIn(0f, 1f)
+
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    lastTouchMoveAt = 0L
                     target.sendTouch("down", x, y)
+                    lastTouchMoveAt = 0L
                     true
                 }
 
@@ -158,6 +219,7 @@ class MainActivity : AppCompatActivity() {
 
                 MotionEvent.ACTION_UP -> {
                     target.sendTouch("up", x, y)
+                    view.performClick()
                     true
                 }
 
@@ -166,7 +228,7 @@ class MainActivity : AppCompatActivity() {
                     true
                 }
 
-                else -> true
+                else -> false
             }
         }
     }
@@ -196,6 +258,134 @@ class MainActivity : AppCompatActivity() {
 
                 override fun onNothingSelected(parent: AdapterView<*>?) = Unit
             }
+    }
+
+    private fun setupQualityControls() {
+        qualityAdapter = ArrayAdapter(
+            this,
+            R.layout.item_spinner,
+            qualityOptions.map { qualityLabel(it) }
+        ).apply { setDropDownViewResource(R.layout.item_spinner_dropdown) }
+        binding.qualitySpinner.adapter = qualityAdapter
+        binding.qualitySpinner.onItemSelectedListener =
+            object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(
+                    parent: AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long
+                ) {
+                    val picked = qualityOptions.getOrNull(position) ?: return
+                    if (picked == currentQuality) return
+                    currentQuality = picked
+                    persistProfile()
+                    pushProfile()
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            }
+
+        fpsAdapter = ArrayAdapter(
+            this,
+            R.layout.item_spinner,
+            fpsOptions.map { fpsLabel(it) }
+        ).apply { setDropDownViewResource(R.layout.item_spinner_dropdown) }
+        binding.fpsSpinner.adapter = fpsAdapter
+        binding.fpsSpinner.onItemSelectedListener =
+            object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(
+                    parent: AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long
+                ) {
+                    val picked = fpsOptions.getOrNull(position) ?: return
+                    if (picked == currentFps) return
+                    currentFps = picked
+                    persistProfile()
+                    pushProfile()
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            }
+
+        fitAdapter = ArrayAdapter(
+            this,
+            R.layout.item_spinner,
+            fitOptions.map { fitLabel(it) }
+        ).apply { setDropDownViewResource(R.layout.item_spinner_dropdown) }
+        binding.fitSpinner.adapter = fitAdapter
+        binding.fitSpinner.onItemSelectedListener =
+            object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(
+                    parent: AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long
+                ) {
+                    val picked = fitOptions.getOrNull(position) ?: return
+                    currentFit = picked
+                    persistProfile()
+                    applyFitMode()
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            }
+    }
+
+    private fun qualityLabel(quality: CaptureQuality): String = when (quality) {
+        CaptureQuality.AUTO -> getString(R.string.quality_auto)
+        CaptureQuality.LOW -> getString(R.string.quality_low)
+        CaptureQuality.MEDIUM -> getString(R.string.quality_medium)
+        CaptureQuality.HIGH -> getString(R.string.quality_high)
+        CaptureQuality.ULTRA -> getString(R.string.quality_ultra)
+    }
+
+    private fun fpsLabel(fps: CaptureFps): String = when (fps) {
+        CaptureFps.ECO -> getString(R.string.fps_eco)
+        CaptureFps.STANDARD -> getString(R.string.fps_standard)
+        CaptureFps.SMOOTH -> getString(R.string.fps_smooth)
+    }
+
+    private fun fitLabel(fit: VideoFit): String = when (fit) {
+        VideoFit.FIT -> getString(R.string.fit_fit)
+        VideoFit.FILL -> getString(R.string.fit_fill)
+        VideoFit.STRETCH -> getString(R.string.fit_stretch)
+        VideoFit.RATIO_4_3 -> getString(R.string.fit_4_3)
+        VideoFit.RATIO_16_9 -> getString(R.string.fit_16_9)
+    }
+
+    private fun applyFitMode() {
+        binding.videoContainer.fitMode = currentFit.mode
+        binding.videoContainer.forcedAspectRatio = currentFit.forcedRatio
+        binding.videoContainer.requestLayout()
+    }
+
+    private fun pushProfile() {
+        val target = client
+        if (!connected || target == null || !target.isOpen) return
+        target.sendProfile(VideoProfile(currentQuality, currentFps))
+    }
+
+    private fun persistProfile() {
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .putInt(KEY_QUALITY, currentQuality.ordinal)
+            .putInt(KEY_FPS, currentFps.ordinal)
+            .putInt(KEY_FIT, currentFit.ordinal)
+            .apply()
+    }
+
+    private fun restoreProfilePrefs(prefs: android.content.SharedPreferences) {
+        currentQuality = qualityOptions.getOrNull(prefs.getInt(KEY_QUALITY, 0))
+            ?: CaptureQuality.AUTO
+        currentFps = fpsOptions.getOrNull(prefs.getInt(KEY_FPS, 1)) ?: CaptureFps.STANDARD
+        currentFit = fitOptions.getOrNull(prefs.getInt(KEY_FIT, 0)) ?: VideoFit.FIT
+
+        binding.qualitySpinner.setSelection(qualityOptions.indexOf(currentQuality), false)
+        binding.fpsSpinner.setSelection(fpsOptions.indexOf(currentFps), false)
+        binding.fitSpinner.setSelection(fitOptions.indexOf(currentFit), false)
+        applyFitMode()
     }
 
     private fun setupSurface() {
@@ -247,6 +437,8 @@ class MainActivity : AppCompatActivity() {
         binding.disconnectButton.setOnClickListener { disconnect(showToast = true) }
         binding.backButton.setOnClickListener { sendAction("back") }
         binding.homeButton.setOnClickListener { sendAction("home") }
+        binding.recentsButton.setOnClickListener { sendAction("recents") }
+        binding.fullscreenButton.setOnClickListener { setFullscreen(!fullscreen) }
     }
 
     private fun connect() {
@@ -256,12 +448,26 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val (host, port) = address
+        userDisconnected = false
+        reconnectAttempts = 0
+        mainHandler.removeCallbacks(reconnectRunnable)
+        startConnection(host, port, isReconnect = false)
+    }
+
+    private fun startConnection(host: String, port: Int, isReconnect: Boolean) {
+        if (connected || connecting) return
         nsdDiscovery.stop()
         stopPing()
         lastSyncRequestAt = 0L
+        lastHost = host
+        lastPort = port
         connecting = true
         agentName = ""
-        setStatus(R.string.status_connecting, R.color.warning)
+        if (isReconnect) {
+            setStatus(R.string.status_reconnecting, R.color.warning)
+        } else {
+            setStatus(R.string.status_connecting, R.color.warning)
+        }
         updateConnectionUi()
 
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
@@ -282,11 +488,16 @@ class MainActivity : AppCompatActivity() {
                             if (client !== target) return@post
                             connected = true
                             connecting = false
+                            reconnectAttempts = 0
+                            missedPongs = 0
+                            binding.videoPlaceholder.visibility = View.GONE
                             setStatus(R.string.status_connected, R.color.success)
                             updateConnectionUi()
                             toast(getString(R.string.toast_connected))
                             startPing()
                             requestSyncFor(target, force = true)
+                            // 连上就把当前的画质 / 帧率下发过去
+                            target.sendProfile(VideoProfile(currentQuality, currentFps))
                         }
                     }
 
@@ -306,7 +517,7 @@ class MainActivity : AppCompatActivity() {
                         val target = newClient ?: return
                         mainHandler.post {
                             if (client !== target) return@post
-                            handleConnectionLost(reason, null)
+                            handleConnectionLost(reason, null, allowReconnect = true)
                         }
                     }
 
@@ -314,7 +525,7 @@ class MainActivity : AppCompatActivity() {
                         val target = newClient ?: return
                         mainHandler.post {
                             if (client !== target) return@post
-                            handleConnectionLost(null, message)
+                            handleConnectionLost(null, message, allowReconnect = true)
                         }
                     }
                 }
@@ -322,7 +533,9 @@ class MainActivity : AppCompatActivity() {
             newClient = candidate
             client = candidate
             candidate.connectToAgent()
-            toast(getString(R.string.toast_connecting, host, port))
+            if (!isReconnect) {
+                toast(getString(R.string.toast_connecting, host, port))
+            }
         } catch (t: Throwable) {
             client = null
             connected = false
@@ -330,10 +543,28 @@ class MainActivity : AppCompatActivity() {
             setStatus(R.string.status_error, R.color.danger)
             updateConnectionUi()
             toast(getString(R.string.toast_connection_failed) + ": ${t.message}")
+            scheduleReconnect()
         }
     }
 
+    private fun scheduleReconnect() {
+        if (userDisconnected) return
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            reconnectAttempts = 0
+            return
+        }
+        reconnectAttempts++
+        val delay = (RECONNECT_BASE_DELAY_MS * reconnectAttempts)
+            .coerceAtMost(RECONNECT_MAX_DELAY_MS)
+        toast(getString(R.string.toast_reconnecting, reconnectAttempts))
+        mainHandler.removeCallbacks(reconnectRunnable)
+        mainHandler.postDelayed(reconnectRunnable, delay)
+    }
+
     private fun disconnect(showToast: Boolean) {
+        userDisconnected = true
+        reconnectAttempts = 0
+        mainHandler.removeCallbacks(reconnectRunnable)
         val hadConnection = client != null || connected || connecting
         val activeClient = client
         client = null
@@ -344,14 +575,16 @@ class MainActivity : AppCompatActivity() {
         connecting = false
         agentName = ""
         lastSyncRequestAt = 0L
+        missedPongs = 0
         binding.latencyText.text = getString(R.string.latency_unknown)
         binding.resolutionText.text = "--"
+        binding.videoPlaceholder.visibility = View.VISIBLE
         setStatus(R.string.status_idle, R.color.warning)
         updateConnectionUi()
         if (showToast && hadConnection) toast(getString(R.string.toast_disconnected))
     }
 
-    private fun handleConnectionLost(reason: String?, error: String?) {
+    private fun handleConnectionLost(reason: String?, error: String?, allowReconnect: Boolean) {
         val activeClient = client
         client = null
         activeClient?.disconnect()
@@ -361,17 +594,29 @@ class MainActivity : AppCompatActivity() {
         connecting = false
         agentName = ""
         lastSyncRequestAt = 0L
+        missedPongs = 0
         binding.latencyText.text = getString(R.string.latency_unknown)
         binding.resolutionText.text = "--"
+        binding.videoPlaceholder.visibility = View.VISIBLE
+
+        if (userDisconnected) {
+            setStatus(R.string.status_idle, R.color.warning)
+            updateConnectionUi()
+            return
+        }
 
         if (error != null) {
             setStatus(R.string.status_error, R.color.danger)
-            toast(getString(R.string.toast_connection_failed))
         } else {
             setStatus(R.string.status_disconnected, R.color.warning)
-            toast(getString(R.string.toast_disconnected))
         }
         updateConnectionUi()
+
+        if (allowReconnect && !userDisconnected) {
+            scheduleReconnect()
+        } else if (error != null) {
+            toast(getString(R.string.toast_connection_failed))
+        }
     }
 
     private fun handleText(target: ControllerWebSocketClient, text: String) {
@@ -397,6 +642,7 @@ class MainActivity : AppCompatActivity() {
                             width.toFloat() / height.toFloat()
                         binding.resolutionText.text =
                             getString(R.string.resolution_value, width, height)
+                        applyFitMode()
                     }
                 }
             }
@@ -408,6 +654,7 @@ class MainActivity : AppCompatActivity() {
                 mainHandler.post {
                     if (client !== target) return@post
                     pingPending = false
+                    missedPongs = 0
                     binding.latencyText.text = getString(R.string.latency_value, latency)
                 }
             }
@@ -423,6 +670,54 @@ class MainActivity : AppCompatActivity() {
 
             "status" -> Unit
         }
+    }
+
+    private fun setFullscreen(enabled: Boolean) {
+        if (fullscreen == enabled) return
+        fullscreen = enabled
+        val params = binding.videoContainer.layoutParams as?
+            ConstraintLayout.LayoutParams ?: return
+        val density = resources.displayMetrics.density
+        val margin = (10 * density).toInt()
+
+        if (enabled) {
+            binding.topBar.visibility = View.GONE
+            binding.bottomPanel.visibility = View.GONE
+            params.topToTop = ConstraintLayout.LayoutParams.PARENT_ID
+            params.bottomToBottom = ConstraintLayout.LayoutParams.PARENT_ID
+            params.topToBottom = ConstraintLayout.LayoutParams.UNSET
+            params.setMargins(0, 0, 0, 0)
+            binding.fullscreenButton.setText(R.string.fullscreen_exit)
+            binding.root.isKeepScreenOn = true
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            val controller = WindowInsetsControllerCompat(window, binding.root)
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        } else {
+            binding.topBar.visibility = View.VISIBLE
+            binding.bottomPanel.visibility = View.VISIBLE
+            params.topToTop = ConstraintLayout.LayoutParams.UNSET
+            params.topToBottom = R.id.topBar
+            params.bottomToBottom = R.id.bottomPanel
+            params.setMargins(margin, margin, margin, margin)
+            binding.fullscreenButton.setText(R.string.fullscreen_enter)
+            binding.root.isKeepScreenOn = false
+            WindowCompat.setDecorFitsSystemWindows(window, true)
+            WindowInsetsControllerCompat(window, binding.root)
+                .show(WindowInsetsCompat.Type.systemBars())
+        }
+        binding.videoContainer.layoutParams = params
+        binding.videoContainer.requestLayout()
+    }
+
+    override fun onBackPressed() {
+        if (fullscreen) {
+            setFullscreen(false)
+            return
+        }
+        @Suppress("DEPRECATION")
+        super.onBackPressed()
     }
 
     private fun sendAction(action: String) {
@@ -446,12 +741,14 @@ class MainActivity : AppCompatActivity() {
     private fun startPing() {
         stopPing()
         pingPending = false
-        mainHandler.postDelayed(pingRunnable, 250L)
+        missedPongs = 0
+        mainHandler.postDelayed(pingRunnable, PING_START_DELAY_MS)
     }
 
     private fun stopPing() {
         mainHandler.removeCallbacks(pingRunnable)
         pingPending = false
+        missedPongs = 0
     }
 
     private fun updateConnectionUi() {
@@ -460,6 +757,7 @@ class MainActivity : AppCompatActivity() {
         binding.disconnectButton.isEnabled = busy
         binding.backButton.isEnabled = connected
         binding.homeButton.isEnabled = connected
+        binding.recentsButton.isEnabled = connected
         binding.ipInput.isEnabled = !busy
         binding.portInput.isEnabled = !busy
         binding.deviceSpinner.isEnabled = !busy
@@ -542,8 +840,18 @@ class MainActivity : AppCompatActivity() {
         const val PREFS_NAME = "controller_prefs"
         const val KEY_LAST_HOST = "last_host"
         const val KEY_LAST_PORT = "last_port"
+        const val KEY_QUALITY = "quality"
+        const val KEY_FPS = "fps"
+        const val KEY_FIT = "fit"
         const val DEFAULT_PORT = 8765
         const val TOUCH_MOVE_INTERVAL_MS = 16L
         const val SYNC_REQUEST_INTERVAL_MS = 1_000L
+        const val PING_INTERVAL_MS = 1_000L
+        const val PING_START_DELAY_MS = 250L
+        const val PONG_TIMEOUT_MS = 2_500L
+        const val MAX_MISSED_PONGS = 3
+        const val MAX_RECONNECT_ATTEMPTS = 6
+        const val RECONNECT_BASE_DELAY_MS = 1_200L
+        const val RECONNECT_MAX_DELAY_MS = 6_000L
     }
 }

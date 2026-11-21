@@ -7,6 +7,7 @@ import android.view.Surface
 import java.nio.ByteBuffer
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * MediaCodec H.264 decoder rendered directly into the SurfaceView's Surface.
@@ -14,6 +15,9 @@ import java.util.concurrent.TimeUnit
  * Codec configuration is delivered in-band by the agent as a WireProtocol config
  * packet, so the controller does not need to guess SPS/PPS from key frames. Only
  * the decoder thread touches MediaCodec.
+ *
+ * 低延迟策略：队列刻意做得浅（约 250ms），满了就丢掉最旧的视频帧而不是拒绝
+ * 新帧，避免解码追不上时延迟越攒越大。
  */
 class VideoDecoder(
     private val surface: Surface,
@@ -38,6 +42,7 @@ class VideoDecoder(
 
     private val queue = ArrayBlockingQueue<Item>(MAX_QUEUED_ITEMS)
     private val bufferInfo = MediaCodec.BufferInfo()
+    private val droppedFrames = AtomicInteger(0)
 
     @Volatile
     private var running = true
@@ -50,6 +55,9 @@ class VideoDecoder(
     fun start() {
         worker.start()
     }
+
+    /** 已丢弃的帧数（队列积压时产生），用于诊断卡顿。 */
+    fun droppedFrameCount(): Int = droppedFrames.get()
 
     /**
      * Returns false when the packet could not be queued (queue full / released).
@@ -70,7 +78,7 @@ class VideoDecoder(
 
             WireProtocol.TYPE_VIDEO_FRAME -> {
                 if (payload.isEmpty()) return false
-                queue.offer(
+                offerFrame(
                     Item.Frame(
                         data = payload,
                         presentationTimeUs = header.presentationTimeUs,
@@ -81,6 +89,26 @@ class VideoDecoder(
 
             else -> false
         }
+    }
+
+    /**
+     * 队列满时丢掉最旧的视频帧再入队，保证最新画面优先。
+     * 控制类项目（Config / Reset）不会被丢。
+     */
+    private fun offerFrame(item: Item.Frame): Boolean {
+        if (queue.offer(item)) return true
+        droppedFrames.incrementAndGet()
+        val kept = ArrayList<Item>(4)
+        while (true) {
+            val existing = queue.poll() ?: break
+            if (existing is Item.Frame) continue
+            kept.add(existing)
+            if (kept.size >= 4) break
+        }
+        kept.forEach { queue.offer(it) }
+        val accepted = queue.offer(item)
+        if (!accepted) droppedFrames.incrementAndGet()
+        return accepted
     }
 
     fun reset() {
@@ -224,6 +252,7 @@ class VideoDecoder(
             }
             when {
                 outputIndex >= 0 -> {
+                    // 立刻渲染：不排队、不等待显示时间，直接降低端到端延迟。
                     decoder.releaseOutputBuffer(outputIndex, true)
                 }
 
@@ -292,7 +321,9 @@ class VideoDecoder(
         const val NAL_SPS = 7
         const val NAL_PPS = 8
         const val MAX_INPUT_SIZE = 2 * 1024 * 1024
-        const val MAX_QUEUED_ITEMS = 90
+
+        /** 浅队列：30fps 下约 250ms，超出即丢旧帧。 */
+        const val MAX_QUEUED_ITEMS = 8
         val START_CODE = byteArrayOf(0, 0, 0, 1)
     }
 }

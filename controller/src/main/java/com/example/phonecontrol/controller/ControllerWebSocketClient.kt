@@ -13,6 +13,10 @@ class ControllerWebSocketClient(
     private val listener: Listener
 ) : WebSocketClient(websocketUri(host, port)) {
 
+    /** 主机和端口在重连时需要复用。 */
+    val agentHost: String = host
+    val agentPort: Int = port
+
     interface Listener {
         fun onOpen()
         fun onText(text: String)
@@ -22,6 +26,7 @@ class ControllerWebSocketClient(
     }
 
     init {
+        // 关掉 Nagle，触摸和小包立即发出，降低操作延迟。
         setTcpNoDelay(true)
         setConnectionLostTimeout(15)
     }
@@ -62,6 +67,11 @@ class ControllerWebSocketClient(
 
     fun requestSync(): Boolean {
         return sendJson(JSONObject().put("type", "requestSync"))
+    }
+
+    /** 下发画质 / 帧率 / 码率。被控端会按需重建编码器。 */
+    fun sendProfile(profile: VideoProfile): Boolean {
+        return sendJson(profile.toJson())
     }
 
     fun sendPing(sentAtElapsedRealtime: Long): Boolean {

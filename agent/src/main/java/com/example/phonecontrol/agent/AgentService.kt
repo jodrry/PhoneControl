@@ -47,6 +47,16 @@ class AgentService : Service() {
     private var foregroundStarted = false
     private var startingCapture = false
 
+    // 控制端下发的采集参数（0 表示自动）
+    @Volatile
+    private var profileLongEdge = DEFAULT_LONG_EDGE
+
+    @Volatile
+    private var profileFps = DEFAULT_FPS
+
+    @Volatile
+    private var profileBitrateKbps = 0
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -98,12 +108,7 @@ class AgentService : Service() {
                 throw IllegalStateException("invalid display metrics")
             }
 
-            val captureScale = minOf(
-                1f,
-                MAX_CAPTURE_LONG_EDGE.toFloat() / max(screenWidth, screenHeight).toFloat()
-            )
-            val captureWidth = evenDimension((screenWidth * captureScale).roundToInt())
-            val captureHeight = evenDimension((screenHeight * captureScale).roundToInt())
+            val (captureWidth, captureHeight) = computeCaptureSize(screenWidth, screenHeight)
 
             AgentState.update {
                 it.copy(
@@ -136,6 +141,8 @@ class AgentService : Service() {
                 captureWidth = captureWidth,
                 captureHeight = captureHeight,
                 densityDpi = metrics.densityDpi,
+                frameRate = profileFps,
+                bitrateKbps = profileBitrateKbps,
                 callbacks = object : ScreenCaptureEngine.Callbacks {
                     override fun onCodecConfig(packet: ByteArray) {
                         server?.updateCodecConfig(packet)
@@ -224,6 +231,54 @@ class AgentService : Service() {
         override fun onRequestKeyFrame() {
             capture?.requestKeyFrame()
         }
+
+        override fun onProfile(longEdge: Int, fps: Int, bitrateKbps: Int) {
+            mainHandler.post { applyProfile(longEdge, fps, bitrateKbps) }
+        }
+    }
+
+    /**
+     * 控制端改画质 / 帧率：复用已有 MediaProjection 和 VirtualDisplay，
+     * 只重建编码器，所以不会重新弹授权。
+     */
+    private fun applyProfile(longEdge: Int, fps: Int, bitrateKbps: Int) {
+        if (stopping) return
+        val engine = capture ?: return
+        val newLongEdge = if (longEdge > 0) longEdge else DEFAULT_LONG_EDGE
+        val newFps = if (fps in MIN_FPS..MAX_FPS) fps else DEFAULT_FPS
+        val newBitrate = bitrateKbps.coerceIn(0, MAX_BITRATE_KBPS)
+
+        val unchanged = newLongEdge == profileLongEdge &&
+            newFps == profileFps &&
+            newBitrate == profileBitrateKbps
+        profileLongEdge = newLongEdge
+        profileFps = newFps
+        profileBitrateKbps = newBitrate
+        if (unchanged) return
+
+        val metrics = readDisplayMetrics()
+        if (metrics.widthPixels <= 0 || metrics.heightPixels <= 0) return
+        val (width, height) = computeCaptureSize(metrics.widthPixels, metrics.heightPixels)
+        val applied = engine.reconfigure(width, height, newFps, newBitrate)
+        if (applied) {
+            AgentState.update { it.copy(captureWidth = width, captureHeight = height) }
+            Log.i(TAG, "profile applied: ${width}x$height @ ${newFps}fps")
+        } else {
+            Log.w(TAG, "profile rejected by encoder, kept previous capture size")
+        }
+    }
+
+    /** 按控制端要求的长边上限等比缩放，并保证宽高都是偶数（编码器要求）。 */
+    private fun computeCaptureSize(screenWidth: Int, screenHeight: Int): Pair<Int, Int> {
+        val longEdge = profileLongEdge.coerceIn(MIN_LONG_EDGE, MAX_LONG_EDGE)
+        val maxSide = max(screenWidth, screenHeight)
+        if (maxSide <= 0) {
+            return evenDimension(screenWidth) to evenDimension(screenHeight)
+        }
+        val scale = minOf(1f, longEdge.toFloat() / maxSide.toFloat())
+        val width = evenDimension((screenWidth * scale).roundToInt())
+        val height = evenDimension((screenHeight * scale).roundToInt())
+        return width to height
     }
 
     private fun fail(message: String) {
@@ -402,7 +457,13 @@ class AgentService : Service() {
         private const val NOTIFICATION_ID = 1001
         private const val REQUEST_CONTENT = 100
         private const val REQUEST_STOP = 101
-        private const val MAX_CAPTURE_LONG_EDGE = 1280
+        private const val DEFAULT_LONG_EDGE = 1280
+        private const val MIN_LONG_EDGE = 240
+        private const val MAX_LONG_EDGE = 2560
+        private const val DEFAULT_FPS = 30
+        private const val MIN_FPS = 10
+        private const val MAX_FPS = 60
+        private const val MAX_BITRATE_KBPS = 40_000
 
         const val PORT = 8765
 

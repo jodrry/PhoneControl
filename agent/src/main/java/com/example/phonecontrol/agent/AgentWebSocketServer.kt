@@ -31,6 +31,12 @@ class AgentWebSocketServer(
         fun onTouch(phase: String, x: Float, y: Float)
         fun onAction(action: String)
         fun onRequestKeyFrame()
+
+        /**
+         * 控制端下发的采集参数：分辨率长边上限 / 帧率 / 码率。
+         * 传 0 表示由被控端自动决定。
+         */
+        fun onProfile(longEdge: Int, fps: Int, bitrateKbps: Int)
     }
 
     private val clients = ConcurrentHashMap.newKeySet<WebSocket>()
@@ -44,6 +50,8 @@ class AgentWebSocketServer(
 
     init {
         setConnectionLostTimeout(20)
+        // 关掉 Nagle：帧和触摸事件都要尽快发出，牺牲一点包合并换低延迟
+        setTcpNoDelay(true)
     }
 
     fun startServer() {
@@ -167,6 +175,18 @@ class AgentWebSocketServer(
             }
 
             "requestKeyframe" -> listener.onRequestKeyFrame()
+
+            "profile" -> {
+                val longEdge = json.optInt("longEdge", 0)
+                val fps = json.optInt("fps", 0)
+                val bitrateKbps = json.optInt("bitrateKbps", 0)
+                if (longEdge < 0 || fps < 0 || bitrateKbps < 0) {
+                    sendError(conn, "invalid profile")
+                    return
+                }
+                listener.onProfile(longEdge, fps, bitrateKbps)
+            }
+
             else -> sendError(conn, "unsupported message")
         }
     }
