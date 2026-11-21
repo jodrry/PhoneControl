@@ -218,10 +218,11 @@ class ScreenCaptureEngine(
     }
 
     private fun sendConfigFromCsd(csd: ByteArray) {
-        val nals = extractNals(csd).filter {
+        val parsed = parseNals(csd)
+        val nals = parsed.filter {
             val type = WireProtocol.nalType(it)
             type == NAL_SPS || type == NAL_PPS
-        }.ifEmpty { extractNals(csd) }
+        }.ifEmpty { parsed }
         if (nals.isNotEmpty()) sendConfigPacket(nals)
     }
 
