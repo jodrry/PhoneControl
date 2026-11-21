@@ -688,7 +688,7 @@ class MainActivity : AppCompatActivity() {
             params.topToBottom = ConstraintLayout.LayoutParams.UNSET
             params.setMargins(0, 0, 0, 0)
             binding.fullscreenButton.setText(R.string.fullscreen_exit)
-            binding.root.isKeepScreenOn = true
+            binding.root.keepScreenOn = true
             WindowCompat.setDecorFitsSystemWindows(window, false)
             val controller = WindowInsetsControllerCompat(window, binding.root)
             controller.hide(WindowInsetsCompat.Type.systemBars())
@@ -702,7 +702,7 @@ class MainActivity : AppCompatActivity() {
             params.bottomToBottom = R.id.bottomPanel
             params.setMargins(margin, margin, margin, margin)
             binding.fullscreenButton.setText(R.string.fullscreen_enter)
-            binding.root.isKeepScreenOn = false
+            binding.root.keepScreenOn = false
             WindowCompat.setDecorFitsSystemWindows(window, true)
             WindowInsetsControllerCompat(window, binding.root)
                 .show(WindowInsetsCompat.Type.systemBars())
