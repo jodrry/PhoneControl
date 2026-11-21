@@ -293,6 +293,15 @@
         </LinearLayout>
 
         <TextView
+            android:id="@+id/versionText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/version_label"
+            android:textColor="@color/brand_secondary"
+            android:textSize="11sp" />
+
+        <TextView
             android:id="@+id/helpText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

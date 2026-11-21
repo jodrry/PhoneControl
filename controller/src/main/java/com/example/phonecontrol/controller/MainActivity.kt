@@ -13,6 +13,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
+import androidx.core.content.pm.PackageInfoCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -127,6 +128,7 @@ class MainActivity : AppCompatActivity() {
         binding.videoContainer.aspectRatio = 9f / 16f
         binding.latencyText.text = getString(R.string.latency_unknown)
         binding.videoPlaceholder.visibility = View.VISIBLE
+        binding.versionText.text = getString(R.string.version_label, appVersionLabel())
 
         setupSpinner()
         setupQualityControls()
@@ -830,6 +832,14 @@ class MainActivity : AppCompatActivity() {
         if (raw.isBlank() || raw.any { it.isWhitespace() } || raw.contains(':')) return null
         if (port !in 1..65535) return null
         return raw to port
+    }
+
+    /** 显示在界面上的版本号，方便确认装的是不是最新构建。 */
+    private fun appVersionLabel(): String = try {
+        val info = packageManager.getPackageInfo(packageName, 0)
+        "${info.versionName} (${PackageInfoCompat.getLongVersionCode(info)})"
+    } catch (t: Throwable) {
+        "unknown"
     }
 
     private fun toast(message: String) {
