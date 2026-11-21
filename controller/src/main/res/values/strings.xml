@@ -67,7 +67,11 @@
 
     <string name="version_label">版本 %1$s</string>
 
-    <string name="help_text">两台手机需连接同一 Wi-Fi；若自动发现失败，请在被控端查看 IP 后手动输入。画面质量与帧率会实时下发给被控端；弱网可选 480p + 15 帧降低延迟。局域网 WebSocket 未加密，请只在可信网络使用。</string>
+    <string name="ip_hint_short">IP 地址</string>
+    <string name="port_hint_short">端口</string>
+    <string name="waiting_video">等待画面接入…</string>
+
+    <string name="placeholder_help_unused">两台手机需连接同一 Wi-Fi；若自动发现失败，请在被控端查看 IP 后手动输入。画面质量与帧率会实时下发给被控端；弱网可选 480p + 15 帧降低延迟。局域网 WebSocket 未加密，请只在可信网络使用。</string>
 
     <string name="nsd_service_type">_phonecontrol._tcp.</string>
     <string name="agent_default_port">8765</string>

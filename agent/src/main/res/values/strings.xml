@@ -76,4 +76,15 @@
 
     <string name="accessibility_service_label">远程控制手势服务</string>
     <string name="accessibility_service_description">允许“手机被控端”在本机执行由局域网控制端发起的点击、长按、滑动、返回和 Home 手势。屏幕内容只发送给已连接的局域网控制端。</string>
+
+    <string name="connections_short">连接数</string>
+    <string name="tag_accessibility_pending">无障碍服务 · 待开启</string>
+    <string name="tag_accessibility_on">无障碍服务 · 已开启</string>
+    <string name="tag_notification_pending">通知权限 · 待授权</string>
+    <string name="tag_notification_on">通知权限 · 已授权</string>
+    <string name="metric_screen">本机屏幕 %1$s</string>
+    <string name="metric_capture">采集分辨率 %1$s</string>
+    <string name="metric_mdns">局域网发现 %1$s</string>
+    <string name="cell_ip">IP</string>
+    <string name="cell_port">端口</string>
 </resources>

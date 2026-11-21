@@ -5,10 +5,12 @@ import android.app.Activity
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -64,8 +66,8 @@ class MainActivity : AppCompatActivity() {
 
         binding.startButton.setOnClickListener { requestStart() }
         binding.stopButton.setOnClickListener { AgentService.stop(this) }
-        binding.accessibilityButton.setOnClickListener { openAccessibilitySettings() }
-        binding.notificationButton.setOnClickListener { requestNotificationPermission() }
+        binding.accessibilityTag.setOnClickListener { openAccessibilitySettings() }
+        binding.notificationTag.setOnClickListener { requestNotificationPermission() }
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -132,65 +134,57 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun render(state: AgentUiState) {
-        binding.statusText.text = when {
-            state.error != null -> getString(R.string.status_error)
-            state.isSharing -> getString(R.string.status_sharing)
-            state.isPreparing -> getString(R.string.status_preparing)
-            else -> getString(R.string.status_idle)
+        val (statusTextRes, statusColorRes) = when {
+            state.error != null -> R.string.status_error to R.color.danger
+            state.isSharing -> R.string.status_sharing to R.color.success
+            state.isPreparing -> R.string.status_preparing to R.color.warning
+            else -> R.string.status_idle to R.color.text_secondary
         }
-        binding.statusText.setTextColor(
-            ContextCompat.getColor(
-                this,
-                when {
-                    state.error != null -> R.color.danger
-                    state.isSharing -> R.color.success
-                    else -> R.color.warning
-                }
-            )
-        )
+        val statusColor = ContextCompat.getColor(this, statusColorRes)
+        binding.statusText.setText(statusTextRes)
+        binding.statusText.setTextColor(statusColor)
+        binding.statusDot.backgroundTintList = ColorStateList.valueOf(statusColor)
 
         binding.ipText.text = state.localIp.ifBlank { "--" }
         binding.portText.text = state.port.toString()
-        binding.connectionsText.text = getString(R.string.value_connections, state.connections)
-        binding.screenText.text = if (state.screenWidth > 0 && state.screenHeight > 0) {
-            getString(R.string.value_screen, state.screenWidth, state.screenHeight)
-        } else {
-            getString(R.string.value_unknown)
-        }
-        binding.captureText.text = if (state.captureWidth > 0 && state.captureHeight > 0) {
-            getString(R.string.value_capture, state.captureWidth, state.captureHeight)
-        } else {
-            getString(R.string.value_unknown)
-        }
-        binding.accessibilityText.text = if (state.accessibilityConnected) {
-            getString(R.string.value_enabled)
-        } else {
-            getString(R.string.value_disabled)
-        }
-        binding.accessibilityText.setTextColor(
-            ContextCompat.getColor(
-                this,
-                if (state.accessibilityConnected) R.color.success else R.color.warning
-            )
+        binding.connectionsText.text = state.connections.toString()
+
+        binding.screenText.text = getString(
+            R.string.metric_screen,
+            if (state.screenWidth > 0 && state.screenHeight > 0) {
+                getString(R.string.value_screen, state.screenWidth, state.screenHeight)
+            } else {
+                getString(R.string.value_unknown)
+            }
+        )
+        binding.captureText.text = getString(
+            R.string.metric_capture,
+            if (state.captureWidth > 0 && state.captureHeight > 0) {
+                getString(R.string.value_capture, state.captureWidth, state.captureHeight)
+            } else {
+                getString(R.string.value_unknown)
+            }
+        )
+        binding.mdnsText.text = getString(
+            R.string.metric_mdns,
+            when (state.mdnsState) {
+                MdnsState.IDLE -> getString(R.string.value_not_running)
+                MdnsState.ADVERTISING -> getString(R.string.value_advertising)
+                MdnsState.FAILED -> getString(R.string.value_mdns_failed)
+            }
         )
 
-        binding.notificationText.text = if (hasNotificationPermission()) {
-            getString(R.string.value_granted)
-        } else {
-            getString(R.string.value_not_granted)
-        }
-        binding.notificationText.setTextColor(
-            ContextCompat.getColor(
-                this,
-                if (hasNotificationPermission()) R.color.success else R.color.warning
-            )
+        val accessibilityOn = state.accessibilityConnected
+        binding.accessibilityTag.setText(
+            if (accessibilityOn) R.string.tag_accessibility_on else R.string.tag_accessibility_pending
         )
+        styleTag(binding.accessibilityTag, accessibilityOn, useWarning = false)
 
-        binding.mdnsText.text = when (state.mdnsState) {
-            MdnsState.IDLE -> getString(R.string.value_not_running)
-            MdnsState.ADVERTISING -> getString(R.string.value_advertising)
-            MdnsState.FAILED -> getString(R.string.value_mdns_failed)
-        }
+        val notificationOn = hasNotificationPermission()
+        binding.notificationTag.setText(
+            if (notificationOn) R.string.tag_notification_on else R.string.tag_notification_pending
+        )
+        styleTag(binding.notificationTag, notificationOn, useWarning = true)
 
         binding.errorText.visibility = if (state.error != null) {
             android.view.View.VISIBLE
@@ -201,6 +195,22 @@ class MainActivity : AppCompatActivity() {
 
         binding.startButton.isEnabled = !state.isPreparing && !state.isSharing
         binding.stopButton.isEnabled = state.isPreparing || state.isSharing
+    }
+
+    /** 已就绪显示绿色胶囊，否则按轻重用橙色（可授权）或红色（缺关键服务）。 */
+    private fun styleTag(tag: TextView, ready: Boolean, useWarning: Boolean) {
+        val backgroundRes = when {
+            ready -> R.drawable.bg_tag_on
+            useWarning -> R.drawable.bg_tag_warn
+            else -> R.drawable.bg_tag_off
+        }
+        val colorRes = when {
+            ready -> R.color.success
+            useWarning -> R.color.warning
+            else -> R.color.danger
+        }
+        tag.setBackgroundResource(backgroundRes)
+        tag.setTextColor(ContextCompat.getColor(this, colorRes))
     }
 
     private fun updatePermissionLabels() {

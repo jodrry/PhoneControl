@@ -12,6 +12,7 @@ import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.widget.ConstraintLayout
+import android.content.res.ColorStateList
 import androidx.core.content.ContextCompat
 import androidx.core.content.pm.PackageInfoCompat
 import androidx.core.view.WindowCompat
@@ -689,7 +690,8 @@ class MainActivity : AppCompatActivity() {
             params.bottomToBottom = ConstraintLayout.LayoutParams.PARENT_ID
             params.topToBottom = ConstraintLayout.LayoutParams.UNSET
             params.setMargins(0, 0, 0, 0)
-            binding.fullscreenButton.setText(R.string.fullscreen_exit)
+            binding.fullscreenButton.setImageResource(R.drawable.ic_fullscreen_exit)
+            binding.fullscreenButton.contentDescription = getString(R.string.fullscreen_exit)
             binding.root.keepScreenOn = true
             WindowCompat.setDecorFitsSystemWindows(window, false)
             val controller = WindowInsetsControllerCompat(window, binding.root)
@@ -703,7 +705,8 @@ class MainActivity : AppCompatActivity() {
             params.topToBottom = R.id.topBar
             params.bottomToBottom = R.id.bottomPanel
             params.setMargins(margin, margin, margin, margin)
-            binding.fullscreenButton.setText(R.string.fullscreen_enter)
+            binding.fullscreenButton.setImageResource(R.drawable.ic_fullscreen)
+            binding.fullscreenButton.contentDescription = getString(R.string.fullscreen_enter)
             binding.root.keepScreenOn = false
             WindowCompat.setDecorFitsSystemWindows(window, true)
             WindowInsetsControllerCompat(window, binding.root)
@@ -771,7 +774,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun setStatus(textRes: Int, colorRes: Int) {
         binding.statusText.setText(textRes)
-        binding.statusText.setTextColor(ContextCompat.getColor(this, colorRes))
+        val color = ContextCompat.getColor(this, colorRes)
+        binding.statusText.setTextColor(color)
+        binding.statusDot.backgroundTintList = ColorStateList.valueOf(color)
     }
 
     private fun refreshDeviceChoices() {
